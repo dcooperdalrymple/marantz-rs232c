@@ -1,5 +1,5 @@
 import rp2
-from machine import Pin
+from machine import Pin, UART
 import network
 import ubinascii
 import time
@@ -8,7 +8,98 @@ import sys
 from config import config
 
 rp2.country(config['country'])
+
 led = Pin('LED', Pin.OUT)
+
+uart = UART(
+    config['uart']['id'],
+    baudrate=config['uart']['format']['baudrate'],
+    bits=config['uart']['format']['bits'],
+    parity=config['uart']['format']['parity'],
+    stop=config['uart']['format']['stop'],
+    tx=Pin(config['uart']['pins']['tx']),
+    rx=Pin(config['uart']['pins']['rx']),
+    rts=Pin(config['uart']['pins']['rts']),
+    cts=Pin(config['uart']['pins']['cts']),
+    timeout=config['uart']['timeout'],
+    timeout_char=config['uart']['timeout'],
+    flow=UART.RTS | UART.CTS
+)
+
+def rs232_convert(c):
+    if isinstance(c, str):
+        if len(c) == 1:
+            return ord(c)
+        else:
+            return False
+    else:
+        return int(c)
+def rs232_build(data):
+    msg = bytearray()
+    msg.append(rs232_convert(config['rs232']['start']))
+    msg.append(rs232_convert(config['rs232']['id']))
+    if isinstance(data, str) and len(data) > 1:
+        for i in data:
+            msg.append(rs232_convert(i))
+    else:
+        msg.append(rs232_convert(data))
+    msg.append(rs232_convert(config['rs232']['end']))
+    return msg
+
+def rs232_command(command, timeout=2):
+    msg = rs232_build(command)
+    print('Sending RS232C command: 0x{}'.format(msg.hex()))
+
+    respone = None
+    try:
+        uart.write(msg)
+        time.sleep(0.1)
+        response = uart.read(1)
+    except Exception as e:
+        print('Failed to send RS232 command {}{}'.format(type(e).__name__, e))
+        sys.print_exception(e)
+        return False
+
+    if response == config['rs232']['ack']:
+        return True
+    #elif response == config['rs232']['nak']:
+    #    return False
+    elif response != None:
+        print('Invalid response from slave: 0x{}'.format(response.hex()))
+    else:
+        print('Invalid response from slave')
+    return False
+
+def rs232_status(status):
+    msg = rs232_build(config['rs232']['request'] + status)
+    print('Requesting device status: 0x{}'.format(msg.hex()))
+
+    buffer = []
+    buffer_len = 0
+    try:
+        uart.write(msg)
+        time.sleep(0.1)
+        if uart.read(1) != config['rs232']['start']:
+            return False
+
+        id = int(uart.read(1))
+        if id < 0 or id > 9:
+            return False
+
+        while True:
+            char = uart.read(1)
+            if char == config['rs232']['end']:
+                break
+            buffer.append(char)
+            buffer_len += 1
+            if buffer_len >= buffer_size:
+                return False
+
+    except Exception as e:
+        print('Failed to request RS232 status {}{}'.format(type(e).__name__, e))
+        return False
+
+    return buffer[0 : buffer_len]
 
 def blink_onboard_led(num_blinks):
     for i in range(num_blinks):
@@ -25,7 +116,7 @@ def connect_wlan(ssid, pw):
 
     # See the MAC address in the wireless chip OTP
     mac = ubinascii.hexlify(network.WLAN().config('mac'),':').decode()
-    print('mac = ' + mac)
+    print('MAC Address: ' + mac)
 
     wlan.connect(ssid, pw)
 
@@ -54,9 +145,9 @@ def connect_wlan(ssid, pw):
     if wlan_status != 3:
         raise RuntimeError('Wi-Fi connection failed')
     else:
-        print('Connected')
+        print('Connected to Wireless Network')
         status = wlan.ifconfig()
-        print('ip = ' + status[0])
+        print('IP Address: ' + status[0])
         return wlan
 
 wlan = connect_wlan(config['wlan']['ssid'], config['wlan']['pw'])
@@ -64,12 +155,11 @@ wlan = connect_wlan(config['wlan']['ssid'], config['wlan']['pw'])
 # Attempt to install umqtt
 print('Installing MQTT Server')
 upip.install('umqtt.simple')
-#upip.install('umqtt.robust')
 try:
-    #from umqtt.robust import MQTTClient
     from umqtt.simple import MQTTClient
 except Exception as e:
-    print('Unable to install umqtt.simple from micropython.org {}{}'.format(type(e).__name__, e))
+    print('Unable to install umqtt.simple from micropython.org')
+    sys.print_exception(e)
     sys.exit()
 
 print('Initializing MQTT Client and connecting to {} service.'.format(config['mqtt']['url']))
@@ -85,16 +175,19 @@ try:
     client.connect()
     print('Successfully connected to MQTT server')
 except Exception as e:
-    print('could not connect to MQTT server {}{}'.format(type(e).__name__, e))
+    print('Could not connect to MQTT server')
+    sys.print_exception(e)
     sys.exit()
 
 def feed_callback(topic, msg):
     print('Received Data:  Topic = {}, Msg = {}'.format(topic, msg))
-    recieved_data = str(msg,'utf-8')            #   Recieving Data
-    if recieved_data=="0":
+    received_data = str(msg, 'utf-8')
+    if received_data == "0":
         led.value(0)
-    if recieved_data=="1":
+        rs232_command(config['rs232']['command']['power_off'])
+    if received_data == "1":
         led.value(1)
+        rs232_command(config['rs232']['command']['power_on'])
 
 feed_endpoint = bytes('{:s}/feeds/{:s}'.format(config['mqtt']['user'], config['mqtt']['feed']), 'utf-8')
 print('MQTT feed endpoint: {}'.format(str(feed_endpoint, 'utf-8')))
@@ -105,8 +198,14 @@ print('Subscribed and listening to MQTT feed')
 while True:
     try:
         client.check_msg()
-    except:
+    except Exception as e:
+        print('Error encountered while handling MQTT message')
+        sys.print_exception(e)
+
         print('Disconnecting from MQTT server')
         client.disconnect()
-        print('Exiting from program')
-        sys.exit()
+        break
+
+print('Exiting from program')
+uart.deinit()
+sys.exit()
