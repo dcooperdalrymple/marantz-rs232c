@@ -60,46 +60,47 @@ def rs232_command(command, timeout=2):
         sys.print_exception(e)
         return False
 
-    if response == config['rs232']['ack']:
-        return True
-    #elif response == config['rs232']['nak']:
-    #    return False
-    elif response != None:
-        print('Invalid response from slave: 0x{}'.format(response.hex()))
+    if response != None:
+        if response[0] == rs232_convert(config['rs232']['ack']):
+            return True
+        elif response[0] == rs232_convert(config['rs232']['nak']):
+            print('Device did not acknowledge command')
+        else:
+            print('Invalid response from device: 0x{}'.format(response.hex()))
     else:
-        print('Invalid response from slave')
+        print('Invalid response from device')
     return False
 
 def rs232_status(status):
     msg = rs232_build(config['rs232']['request'] + status)
     print('Requesting device status: 0x{}'.format(msg.hex()))
 
-    buffer = []
-    buffer_len = 0
     try:
         uart.write(msg)
         time.sleep(0.1)
-        if uart.read(1) != config['rs232']['start']:
+        response = uart.readline()
+        print(response)
+        if response == None or len(response) < 4:
             return False
 
-        id = int(uart.read(1))
-        if id < 0 or id > 9:
+        if response[0] != rs232_convert(config['rs232']['start']):
             return False
 
-        while True:
-            char = uart.read(1)
-            if char == config['rs232']['end']:
+        id = response[1]
+        if id < rs232_convert("0") or id > rs232_convert("9"):
+            return False
+
+        buffer = []
+        for i in range(2, len(response)):
+            if response[i] == config['rs232']['end']:
                 break
-            buffer.append(char)
-            buffer_len += 1
-            if buffer_len >= buffer_size:
-                return False
+            buffer.append(response[i])
+        return buffer
 
     except Exception as e:
         print('Failed to request RS232 status {}{}'.format(type(e).__name__, e))
-        return False
 
-    return buffer[0 : buffer_len]
+    return False
 
 def blink_onboard_led(num_blinks):
     for i in range(num_blinks):
@@ -152,15 +153,18 @@ def connect_wlan(ssid, pw):
 
 wlan = connect_wlan(config['wlan']['ssid'], config['wlan']['pw'])
 
-# Attempt to install umqtt
-print('Installing MQTT Server')
-upip.install('umqtt.simple')
+# Attempt to import or install umqtt
 try:
     from umqtt.simple import MQTTClient
-except Exception as e:
-    print('Unable to install umqtt.simple from micropython.org')
-    sys.print_exception(e)
-    sys.exit()
+except ImportError as i:
+    print('Installing MQTT Server')
+    upip.install('umqtt.simple')
+    try:
+        from umqtt.simple import MQTTClient
+    except Exception as e:
+        print('Unable to install umqtt.simple from micropython.org')
+        sys.print_exception(e)
+        sys.exit()
 
 print('Initializing MQTT Client and connecting to {} service.'.format(config['mqtt']['url']))
 client = MQTTClient(
@@ -182,12 +186,37 @@ except Exception as e:
 def feed_callback(topic, msg):
     print('Received Data:  Topic = {}, Msg = {}'.format(topic, msg))
     received_data = str(msg, 'utf-8')
-    if received_data == "0":
+    if received_data == "1":
         led.value(0)
         rs232_command(config['rs232']['command']['power_off'])
-    if received_data == "1":
+    elif received_data == "2":
         led.value(1)
         rs232_command(config['rs232']['command']['power_on'])
+    elif received_data == "3":
+        led_prev = led.value()
+        led.value(not led_prev)
+        rs232_command(config['rs232']['command']['input_tv'])
+        led.value(led_prev)
+    elif received_data == "4":
+        led_prev = led.value()
+        led.value(not led_prev)
+        rs232_command(config['rs232']['command']['input_cd'])
+        led.value(led_prev)
+    elif received_data == "5":
+        led_prev = led.value()
+        led.value(not led_prev)
+        rs232_command(config['rs232']['command']['input_tape'])
+        led.value(led_prev)
+    elif received_data == "6":
+        led_prev = led.value()
+        led.value(not led_prev)
+        rs232_command(config['rs232']['command']['volume_up'])
+        led.value(led_prev)
+    elif received_data == "7":
+        led_prev = led.value()
+        led.value(not led_prev)
+        rs232_command(config['rs232']['command']['volume_down'])
+        led.value(led_prev)
 
 feed_endpoint = bytes('{:s}/feeds/{:s}'.format(config['mqtt']['user'], config['mqtt']['feed']), 'utf-8')
 print('MQTT feed endpoint: {}'.format(str(feed_endpoint, 'utf-8')))

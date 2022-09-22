@@ -16,13 +16,13 @@ config = {
     },
 
     'uart': {
-        'id': 0,
-        'timeout': 2,
+        'id': 1,
+        'timeout': 2000,
         'pins': {
-            'tx': 0,
-            'rx': 1,
-            'rts': 3,
-            'cts': 2
+            'tx': 4,
+            'rx': 5,
+            'rts': 7,
+            'cts': 6
         },
         'format': {
             'baudrate': 9600,
@@ -46,7 +46,9 @@ config = {
             'power_off': 'A2',
             'input_tv': 'B1',
             'input_cd': 'B9',
-            'input_tape': 'BA'
+            'input_tape': 'BA',
+            'volume_up': 'G0',
+            'volume_down': 'G1'
         },
         "status": {
             'power': 'A',
