@@ -1,3 +1,6 @@
+# FreeCAD
+*.FCStd1
+
 # PyMakr
 pymakr.conf
 
