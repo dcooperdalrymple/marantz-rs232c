@@ -22,7 +22,8 @@ You will need to set up an MQTT server using your own hardware or an online serv
     'url': 'io.adafruit.com',
     'user': 'YOUR_USERNAME',
     'key': 'AIO_KEY',
-    'feed': 'FEED_NAME'
+    'feed': 'FEED_NAME',
+    'keepalive': 300
 }
 ```
 

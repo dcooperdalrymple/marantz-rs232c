@@ -1,4 +1,5 @@
 import rp2
+import machine
 from machine import Pin, UART
 import network
 import ubinascii
@@ -172,7 +173,7 @@ client = MQTTClient(
     server=config['mqtt']['url'],
     user=config['mqtt']['user'],
     password=config['mqtt']['key'],
-    keepalive=0,
+    keepalive=config['mqtt']['keepalive'],
     ssl=False
 )
 try:
@@ -226,7 +227,7 @@ client.subscribe(feed_endpoint)
 print('Subscribed and listening to MQTT feed')
 while True:
     try:
-        client.check_msg()
+        client.wait_msg()
     except Exception as e:
         print('Error encountered while handling MQTT message')
         sys.print_exception(e)
@@ -235,6 +236,8 @@ while True:
         client.disconnect()
         break
 
-print('Exiting from program')
+print('Deinitializing program')
 uart.deinit()
-sys.exit()
+wlan.disconnect()
+print('Attempting reset')
+machine.reset()

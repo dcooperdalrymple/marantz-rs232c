@@ -12,7 +12,8 @@ config = {
         'url': 'SERVER_DOMAIN',
         'user': 'USERNAME',
         'key': 'PASSWORD_OR_KEY',
-        'feed': 'SUBSCRIPTION_FEED'
+        'feed': 'SUBSCRIPTION_FEED',
+        'keepalive': 300
     },
 
     'uart': {
