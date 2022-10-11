@@ -1,29 +1,39 @@
-config = {
-    'country': 'COUNTRY_CODE',
-    'timezone' : "VALID_TIMEZONE",
+import board
 
+config = {
     'wlan': {
         'ssid': 'WIFI_SSID',
         'pw': 'WIFI_PASSWORD'
+        'timeout': 10 # in seconds, used with socket pool
     },
 
     'mqtt': {
-        'client_id': 'RANDOM',
         'url': 'SERVER_DOMAIN',
         'user': 'USERNAME',
         'key': 'PASSWORD_OR_KEY',
         'feed': 'SUBSCRIPTION_FEED',
-        'keepalive': 300
+        #'client_id': 'RANDOM',
+        'ssl': False,
+        #'port': 1883, # 8883 for SSL
+        'keepalive': 300, # in seconds
+        'timeout': 30, # in seconds, must be higher than socket timeout
+        'message': {
+            '1': 'power_off',
+            '2': 'power_on',
+            '3': 'input_tv',
+            '4': 'input_cd',
+            '5': 'input_tape',
+            '6': 'volume_up',
+            '7': 'volume_down'
+        }
     },
 
     'uart': {
         'id': 1,
-        'timeout': 2000,
+        'timeout': 2, # in seconds
         'pins': {
-            'tx': 4,
-            'rx': 5,
-            'rts': 7,
-            'cts': 6
+            'tx': board.GP4,
+            'rx': board.GP5
         },
         'format': {
             'baudrate': 9600,
