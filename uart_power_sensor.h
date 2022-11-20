@@ -2,17 +2,20 @@
 
 class UartPowerSensor : public PollingComponent, public UARTDevice, public BinarySensor {
     public:
-        UartPowerSensor(UARTComponent *parent, int id) : PollingComponent(10000), UARTDevice(parent), device_id(id) {}
+        UartPowerSensor(UARTComponent *parent, int id) : PollingComponent(5000), UARTDevice(parent), device_id(id) {}
 
         void setup() override { }
 
-        int readline(int readch, char *buffer, int len) {
+        int readline(int readch, uint8_t *buffer, int len) {
             static int pos = 0;
             int rpos;
 
             if (readch > 0) {
                 switch (readch) {
                     case '\n': // Ignore new-lines
+                    case 0x00: // Ignore Null
+                    case 0x15: // Ignore NAK
+                    case 0x06: // Ignore ACK
                         break;
                     case 0x0D: // Return on CR
                         rpos = pos;
@@ -29,9 +32,9 @@ class UartPowerSensor : public PollingComponent, public UARTDevice, public Binar
             return -1;
         }
 
-        float readvalue(int readch, char *buffer, int len) {
+        float readvalue(uint8_t *buffer, int len) {
             int rpos = 0;
-            memset(buffer, 0, max_len); // Clear buffer
+            memset(buffer, 0, len); // Clear buffer
             while (available()) {
                 rpos = readline(read(), buffer, len);
                 if (rpos > 0) break;
@@ -54,15 +57,20 @@ class UartPowerSensor : public PollingComponent, public UARTDevice, public Binar
         }
 
         void update() override {
-            const int max_len = 5;
+            // Clear Incoming and Outgoing serial data
+            flush();
+            while (available()) read();
+
+            const int len = 5;
 
             // Request Status
-            static char buffer[max_len] = {0x40, device_id, 0x3F, 0x41, 0x0D}; // @1 ?A \n
-            write(buffer, 5);
+            static uint8_t buffer[len] = {0x40, (uint8_t) device_id, 0x3F, 0x41, 0x0D}; // @1 ?A \n
+            write_array(buffer, 5);
+            flush();
             delay(100);
 
             // Read Response (if available)
-            float value = readvalue(buffer, max_len);
+            float value = readvalue(buffer, len);
             if (value != -1.0) publish_state(value == 1.0);
         }
 

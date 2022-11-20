@@ -2,17 +2,20 @@
 
 class UartVolumeSensor : public PollingComponent, public UARTDevice, public Sensor {
     public:
-        UartVolumeSensor(UARTComponent *parent, int id) : PollingComponent(10000), UARTDevice(parent), device_id(id) {}
+        UartVolumeSensor(UARTComponent *parent, int id) : PollingComponent(5000), UARTDevice(parent), device_id(id) {}
 
         void setup() override { }
 
-        int readline(int readch, char *buffer, int len) {
+        int readline(int readch, uint8_t *buffer, int len) {
             static int pos = 0;
             int rpos;
 
             if (readch > 0) {
                 switch (readch) {
                     case '\n': // Ignore new-lines
+                    case 0x00: // Ignore Null
+                    case 0x15: // Ignore NAK
+                    case 0x06: // Ignore ACK
                         break;
                     case 0x0D: // Return on CR
                         rpos = pos;
@@ -29,7 +32,7 @@ class UartVolumeSensor : public PollingComponent, public UARTDevice, public Sens
             return -1;
         }
 
-        float readvalue(char *buffer, int len) {
+        float readvalue(uint8_t *buffer, int len) {
             int rpos = 0;
             memset(buffer, 0, len); // Clear buffer
             while (available()) {
@@ -50,7 +53,7 @@ class UartVolumeSensor : public PollingComponent, public UARTDevice, public Sens
                     buffer[i] = buffer[i+4];
                 }
                 buffer[3] = '\0';
-                return atof(buffer);
+                return atof((const char *) buffer);
             } else if (buffer[3] == 0x31) { // '1'
                 // Max
                 return 99.0;
@@ -63,15 +66,20 @@ class UartVolumeSensor : public PollingComponent, public UARTDevice, public Sens
         }
 
         void update() override {
-            const int max_len = 8; // 5 for request, 8 for return
+            // Clear Incoming and Outgoing serial data
+            flush();
+            while (available()) read();
+
+            const int len = 8; // 5 for request, 8 for return
 
             // Request Status
-            static char buffer[max_len] = {0x40, device_id, 0x3F, 0x48, 0x0D, 0x00, 0x00, 0x00}; // @1 ?H \n
-            write(buffer, 5);
+            static uint8_t buffer[len] = {0x40, (uint8_t) device_id, 0x3F, 0x48, 0x0D, 0x00, 0x00, 0x00}; // @1 ?H \n
+            write_array(buffer, 5);
+            flush();
             delay(100);
 
             // Read Response (if available)
-            float value = readvalue(buffer, max_len);
+            float value = readvalue(buffer, len);
             if (value != -100.0) publish_state(value);
         }
 
