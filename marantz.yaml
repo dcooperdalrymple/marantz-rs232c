@@ -1,9 +1,6 @@
 ---
 esphome:
   name: marantz
-  includes:
-    - uart_power_sensor.h
-    - uart_volume_sensor.h
 
 rp2040:
   board: rpipicow
@@ -19,11 +16,11 @@ logger:
 # Enable Home Assistant API
 api:
   encryption:
-    key: !secret api_encryption
+    key: !secret marantz_api_encryption
 
 ota:
   safe_mode: True
-  password: !secret ota_password
+  password: !secret marantz_ota_password
 
 wifi:
   ssid: !secret wifi_ssid
@@ -32,15 +29,8 @@ wifi:
 
   # Enable fallback hotspot in case wifi connection fails
   ap:
-    ssid: !secret wifi_fallback_ssid
-    password: !secret wifi_fallback_password
-
-globals:
-  # 0x31 is '1' for ID
-  - id: device_id
-    type: int
-    restore_value: no
-    initial_value: '49' #0x31
+    ssid: !secret marantz_ap_ssid
+    password: !secret marantz_ap_password
 
 output:
   - platform: gpio
@@ -67,101 +57,63 @@ uart:
     sequence:
       - lambda: UARTDebug::log_hex(direction, bytes, ',');
 
-# RS232 Sensors
-
-binary_sensor:
-  - platform: custom
-    lambda: |-
-      auto power_sensor = new UartPowerSensor(id(RS232), (unsigned char) id(device_id));
-      App.register_component(power_sensor);
-      return {power_sensor};
-    binary_sensors:
-      name: "Power Sensor"
-      id: 'power_sensor'
-
-sensor:
-  - platform:  custom
-    lambda: |-
-      auto volume_sensor = new UartVolumeSensor(id(RS232), (unsigned char) id(device_id));
-      App.register_component(volume_sensor);
-      return {volume_sensor};
-    sensors:
-      name: "Volume Sensor"
-      id: 'volume_sensor'
-
 # RS232 Controls
 
 switch:
+
   # Power Control
   - platform: template
     name: "Power"
     id: power
-    optimistic: True
-    restore_state: True
     icon: 'mdi:power'
-    lambda: |-
-      return id(power_sensor).state;
+    optimistic: True
     turn_on_action:
       - output.turn_on: LED
-      - uart.write:
-          id: RS232
-          data: !lambda
-            return {0x40, (unsigned char) id(device_id), 0x41, 0x31, 0x0D}; # @1 A1 \n
-      - lambda: |-
-          id(power_sensor).publish_state(true);
+      # Repeat to ensure that message is read properly
+      - repeat:
+          count: 2
+          then:
+            - uart.write:
+                id: RS232
+                data: [0x40, 0x31, 0x41, 0x31, 0x0D] # @1 A1 \n
+            - delay: 0.25s
       - output.turn_off: LED
     turn_off_action:
       - output.turn_on: LED
-      - uart.write:
-          id: RS232
-          data: !lambda
-            return {0x40, (unsigned char) id(device_id), 0x41, 0x32, 0x0D}; # @1 A2 \n
-      - lambda: |-
-          id(power_sensor).publish_state(false);
+      # Repeat to ensure that message is read properly
+      - repeat:
+          count: 2
+          then:
+            - uart.write:
+                id: RS232
+                data: [0x40, 0x31, 0x41, 0x32, 0x0D] # @1 A2 \n
+            - delay: 0.25s
       - output.turn_off: LED
 
-number:
-  # Volume Control
+button:
+
+  # Volume Up
   - platform: template
-    name: "Volume"
-    id: volume
-    optimistic: False
-    min_value: -90
-    max_value: 99
-    step: 1
-    icon: 'mdi:volume-high'
-    entity_category: 'config'
-    unit_of_measurement: 'db'
-    lambda: |-
-      return id(volume_sensor).state;
-    set_action:
-      then:
-        - output.turn_on: LED
-        - if:
-            condition:
-              lambda: |-
-                return x > id(volume_sensor).state;
-            then:
-              - repeat:
-                  count: !lambda 'return x - id(volume_sensor).state;'
-                  then:
-                    - uart.write:
-                        id: RS232
-                        data: !lambda
-                          return {0x40, (unsigned char) id(device_id), 0x47, 0x30, 0x0D}; # @1 G0 \n (Volume Up)
-            else:
-              - if:
-                  condition:
-                    lambda: |-
-                      return x < id(volume_sensor).state;
-                  then:
-                    - repeat:
-                        count: !lambda 'return id(volume_sensor).state - x;'
-                        then:
-                          - uart.write:
-                              id: RS232
-                              data: !lambda
-                                return {0x40, (unsigned char) id(device_id), 0x47, 0x31, 0x0D}; # @1 G1 \n (Volume Down)
-        - lambda: |-
-            id(volume_sensor).publish_state(x);
-        - output.turn_off: LED
+    name: "Volume Up"
+    id: volume_up
+    icon: 'mdi:volume-plus'
+    on_press:
+      - output.turn_on: LED
+      - uart.write:
+          id: RS232
+          data: [0x40, 0x31, 0x47, 0x30, 0x0D] # @1 G0 \n
+      - delay: 0.25s
+      - output.turn_off: LED
+
+  # Volume Down
+  - platform: template
+    name: "Volume Down"
+    id: volume_down
+    icon: 'mdi:volume-minus'
+    on_press:
+      - output.turn_on: LED
+      - uart.write:
+          id: RS232
+          data: [0x40, 0x31, 0x47, 0x31, 0x0D] # @1 G1 \n
+      - delay: 0.25s
+      - output.turn_off: LED
